@@ -11,17 +11,39 @@ st.set_page_config(page_title="Google Maps Scraper", page_icon="🗺️", layout
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap');
+    
     html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     .block-container { padding-top: 1.5rem; max-width: 1400px; }
+    
+    /* Metrics fix */
     div[data-testid="metric-container"] {
-        background: #f0fdf4; border-radius: 10px; padding: 14px;
+        background: rgba(240, 253, 244, 0.1); /* Background ko transparent kiya */
+        border-radius: 10px; padding: 14px;
         border: 1px solid #bbf7d0;
     }
+
     .stDataFrame { font-family: 'DM Mono', monospace; font-size: 13px; }
-    .api-note  { background:#eff6ff; border-left:4px solid #3b82f6; padding:10px 14px;
-                 border-radius:4px; font-size:13px; margin-bottom:10px; }
-    .warn-note { background:#fff7ed; border-left:4px solid #f97316; padding:10px 14px;
-                 border-radius:4px; font-size:13px; margin-bottom:10px; }
+
+    /* Sidebar Boxes Fix */
+    .api-note { 
+        background: rgba(59, 130, 246, 0.1); /* Light blue with transparency */
+        border-left: 4px solid #3b82f6; 
+        padding: 10px 14px;
+        border-radius: 4px; 
+        font-size: 13px; 
+        margin-bottom: 10px;
+        color: inherit; /* Text color theme se lega */
+    }
+
+    .warn-note { 
+        background: rgba(249, 115, 22, 0.1); /* Orange with transparency */
+        border-left: 4px solid #f97316; 
+        padding: 10px 14px;
+        border-radius: 4px; 
+        font-size: 13px; 
+        margin-bottom: 10px;
+        color: inherit;
+    }
 </style>
 """, unsafe_allow_html=True)
 
