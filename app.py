@@ -23,10 +23,7 @@ st.markdown("""
 
 SERPAPI_ENDPOINT = "https://serpapi.com/search"
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  GEOCODING  (free, no key — OpenStreetMap Nominatim)
-# ══════════════════════════════════════════════════════════════════════════════
+#  GEOCODING  — get city center + bounding box from location name, via OpenStreetMap API
 
 def geocode(location: str) -> dict | None:
     """
@@ -55,15 +52,13 @@ def geocode(location: str) -> dict | None:
         return None
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  GRID  — tile the bounding box into NxN cells
-# ══════════════════════════════════════════════════════════════════════════════
+#  GRID  — tile the bounding box into NxN cells and return their center GPS coordinates
 
 def make_grid(center_lat: float, center_lng: float,
               radius_km: float, n: int) -> list[tuple[float, float]]:
     """
     NxN grid of (lat, lng) evenly spaced within ±radius_km of center.
-    n=1 → single center point (standard search).
+    n=1 -> single center point (standard search).
     """
     if n == 1:
         return [(center_lat, center_lng)]
@@ -78,16 +73,12 @@ def make_grid(center_lat: float, center_lng: float,
     return pts
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  SERPAPI  — one page fetch + full pagination for a single (query, ll)
-# ══════════════════════════════════════════════════════════════════════════════
-
+#  SERPAPI  — get all pages of results for one keyword + one grid cell
 def fetch_all_pages(query: str, ll: str, api_key: str, max_pages: int) -> list[dict]:
     """
     Fetches up to max_pages×20 results for one grid cell.
     KEY FIX: query = keyword only (no city name).
               ll   = GPS of this grid cell.
-    This is how Google Maps is meant to be searched — geo-anchored, not text-anchored.
     """
     all_results = []
     params = {
@@ -107,7 +98,7 @@ def fetch_all_pages(query: str, ll: str, api_key: str, max_pages: int) -> list[d
                 break
             data = r.json()
             if "error" in data:
-                # Bubble fatal errors (bad key / quota)
+                # handling api key errors (bad key / quota)
                 if any(x in data["error"] for x in ["Invalid", "quota", "out of searches", "account"]):
                     raise ValueError(data["error"])
                 break
@@ -115,7 +106,7 @@ def fetch_all_pages(query: str, ll: str, api_key: str, max_pages: int) -> list[d
             if not batch:
                 break
             all_results.extend(batch)
-            # Follow pagination URL SerpAPI provides — most reliable method
+            # Follow pagination URL SerpAPI provides
             next_url = data.get("serpapi_pagination", {}).get("next")
             if not next_url:
                 break
@@ -132,9 +123,7 @@ def fetch_all_pages(query: str, ll: str, api_key: str, max_pages: int) -> list[d
     return all_results
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  LOCATION FILTER  — drop results clearly outside the target city
-# ══════════════════════════════════════════════════════════════════════════════
 
 def within_bbox(lat: float | None, lng: float | None, bbox: list | None) -> bool:
     """
@@ -151,9 +140,7 @@ def within_bbox(lat: float | None, lng: float | None, bbox: list | None) -> bool
             min_lng - lng_buf <= lng <= max_lng + lng_buf)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  RECORD BUILDER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def build_record(p: dict, keyword: str, location: str) -> dict:
     gps = p.get("gps_coordinates", {})
@@ -192,16 +179,14 @@ def build_record(p: dict, keyword: str, location: str) -> dict:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN WORKER  — one keyword × one location
-# ══════════════════════════════════════════════════════════════════════════════
+#  MAIN — one keyword × one location
 
 def scrape_one(keyword: str, location: str, api_key: str,
                grid_n: int, radius_km: float, zoom: int,
                max_pages: int, stop_fn, progress_fn) -> tuple:
     """
     Full pipeline for one keyword+location:
-      1. Geocode → center + bounding box
+      1. Geocode -> center + bounding box
       2. Build NxN grid
       3. For each cell: fetch all pages, collect raw results
       4. Deduplicate by place_id
@@ -217,7 +202,7 @@ def scrape_one(keyword: str, location: str, api_key: str,
         bbox = geo.get("bbox")
 
         grid = make_grid(center_lat, center_lng, radius_km, grid_n)
-        seen: dict[str, dict] = {}          # place_id → record
+        seen: dict[str, dict] = {}          # place_id -> record
         out_of_area = 0
 
         for idx, (lat, lng) in enumerate(grid):
@@ -225,13 +210,13 @@ def scrape_one(keyword: str, location: str, api_key: str,
                 break
 
             ll = f"@{lat},{lng},{zoom}z"
-            # ── KEY: query = keyword only, location handled by GPS ────────────
+            # ── KEY: query = keyword only, location handled by GPS
             raw = fetch_all_pages(keyword, ll, api_key, max_pages)
 
             for p in raw:
                 pid = p.get("place_id") or p.get("data_id") or ""
                 if not pid:
-                    # Use name+address as fallback dedup key
+                    # Use name+address as fallback key
                     pid = f"{p.get('title','')}|{p.get('address','')}"
                 if pid in seen:
                     continue
@@ -255,20 +240,18 @@ def scrape_one(keyword: str, location: str, api_key: str,
         return keyword, location, [], str(e), 0
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  COLUMN META
-# ══════════════════════════════════════════════════════════════════════════════
+#  COLUMNS
 
 COL_META = {
     "name":            "Business Name",
-    "rating":          "Rating ⭐",
+    "rating":          "Rating",
     "reviews":         "Review Count",
-    "phone":           "Phone ☎️",
-    "website":         "Website 🌐",
-    "address":         "Address 📍",
-    "category":        "Category 🏷️",
-    "hours":           "Opening Hours 🕐",
-    "price_range":     "Price Range 💰",
+    "phone":           "Phone",
+    "website":         "Website",
+    "address":         "Address",
+    "category":        "Category",
+    "hours":           "Opening Hours",
+    "price_range":     "Price Range",
     "lat":             "Latitude",
     "lng":             "Longitude",
     "maps_url":        "Google Maps URL",
@@ -277,21 +260,19 @@ COL_META = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
     st.header("⚙️ Configuration")
 
     api_key = st.text_input("SerpAPI Key", type="password", placeholder="your-serpapi-key…")
     st.markdown("""<div class="api-note">
-    🔑 <a href="https://serpapi.com/" target="_blank">serpapi.com</a> → Sign up → Dashboard → API Key<br>
+    <a href="https://serpapi.com/" target="_blank">serpapi.com</a> → Sign up → Dashboard → API Key<br>
     Free: 100 searches/month · Paid from $50/mo (~5,000 searches)
     </div>""", unsafe_allow_html=True)
 
     st.divider()
-    st.subheader("🗂️ Grid Strategy")
+    st.subheader("Grid Strategy")
 
     st.markdown("""<div class="good-note">
     <b>How grid works:</b> City is geocoded (free, via OpenStreetMap) → split into NxN zones →
@@ -329,9 +310,7 @@ with st.sidebar:
                      if st.checkbox(lbl, value=(c in defaults), key=f"col_{c}")]
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
-# ══════════════════════════════════════════════════════════════════════════════
+#  MAIN Page
 
 st.title("🗺️ Google Maps Business Scraper")
 st.caption("Grid-based tiling · GPS-anchored queries · Location-filtered results · Powered by SerpAPI")
@@ -372,7 +351,7 @@ with sb:
         st.session_state.stop = True
 
 
-# ── Run loop ─────────────────────────────────────────────────────────────────
+# ── Run loop 
 
 if run_btn and api_key and keywords and locations:
     st.session_state.update(running=True, stop=False, results=[], stats={})
